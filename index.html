@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Validador de SHP</title>
+	<link rel="icon" href="https://www.kn-portal.com/favicon.ico" type="image/x-icon">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <style>
+        body {
+            background-color: #0a0a23;
+            color: white;
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+
+        input,
+        button {
+            padding: 10px;
+            margin: 10px 10px 10px 0;
+            border-radius: 5px;
+            border: none;
+        }
+
+        input[type="file"],
+        input[type="text"] {
+            background-color: #1a1a40;
+            color: white;
+        }
+
+        button {
+            background-color: #0057a3;
+            color: white;
+            cursor: pointer;
+        }
+
+        .error {
+            background-color: red !important;
+        }
+
+        .resultado {
+            margin-top: 20px;
+        }
+
+        .dashboard {
+            margin-top: 30px;
+            background-color: #1a1a40;
+            padding: 20px;
+            border-radius: 10px;
+        }
+
+        progress {
+            width: 100%;
+            height: 20px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+
+        th,
+        td {
+            padding: 10px;
+            border: 1px solid white;
+            text-align: center;
+        }
+
+        th {
+            background-color: #0057a3;
+        }
+
+        tbody tr:nth-child(even) {
+            background-color: #222248;
+        }
+
+        #guardarBtn {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Validador de SHP</h1>
+
+    <button id="guardarBtn">Guardar Registros</button><br />
+
+    <input type="file" id="excelFile" accept=".xlsx" />
+    <br />
+    <input type="text" id="shpInput" placeholder="Ingresa SHP" />
+    <button onclick="validarDatos()">Validar</button>
+
+    <div class="resultado" id="resultado"></div>
+
+    <div class="dashboard">
+        <h2>Dashboard</h2>
+        <p>Total registros en archivo: <span id="totalRegistros">0</span></p>
+        <p>Total validados correctamente: <span id="validados">0</span></p>
+        <p>Total errores: <span id="totalErrores">0</span></p>
+        <p>Progreso:</p>
+        <progress id="progreso" value="0" max="100"></progress>
+        <p id="porcentaje">0%</p>
+    </div>
+
+    <h2>Detalle de SHPs Validados</h2>
+    <table id="tablaResultados">
+        <thead>
+            <tr>
+                <th>Ordnum</th>
+                <th>SHP</th>
+                <th>LOAD</th>
+                <th>WD</th>
+                <th>Carrier</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    <h2>Errores de SHPs</h2>
+	<audio id="alertSound" src="https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg" preload="auto"></audio>
+    <table id="tablaErrores">
+        <thead>
+            <tr>
+                <th>SHP</th>
+                <th>Tipo Error</th>
+            </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+
+    
+
+    <script>
+        let datosExcel = [];
+        let validados = 0;
+        let errores = [];
+        let shpValidados = new Set();
+
+        document.getElementById('excelFile').addEventListener('change', function (e) {
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const data = new Uint8Array(e.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                const firstSheet = workbook.SheetNames[0];
+                const worksheet = workbook.Sheets[firstSheet];
+                datosExcel = XLSX.utils.sheet_to_json(worksheet);
+
+                document.getElementById("totalRegistros").textContent = datosExcel.length;
+                actualizarDashboard();
+                alert("✅ Archivo cargado correctamente.");
+            };
+            reader.readAsArrayBuffer(e.target.files[0]);
+        });
+
+        document.getElementById('shpInput').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                validarDatos();
+                this.value = "";
+            }
+        });
+
+        document.getElementById('guardarBtn').addEventListener('click', guardarRegistros);
+
+        function reproducirAlerta() {
+            document.getElementById('alertSound').play();
+        }
+
+        function validarDatos() {
+            const shpInput = document.getElementById("shpInput");
+            const shp = shpInput.value.trim();
+            const resultado = document.getElementById("resultado");
+
+            // Reset estilos
+            shpInput.classList.remove("error");
+            resultado.innerHTML = "";
+
+            if (!shp) {
+                alert("⚠️ Ingresa un SHP.");
+                return;
+            }
+
+            if (datosExcel.length === 0) {
+                alert("⚠️ Debes cargar un archivo primero.");
+                return;
+            }
+
+            if (shpValidados.has(shp)) {
+			    reproducirAlerta();
+                alert("🚫 Este SHP ya fue ingresado anteriormente.");
+                shpInput.classList.add("error");
+                agregarError(shp, "SHP ya pasado anteriormente");
+                return;
+            }
+
+            const coincidencias = datosExcel.filter(fila => String(fila.SHP).trim() === shp);
+
+            if (coincidencias.length === 0) {
+                alert("❌ SHP no encontrado.");
+                reproducirAlerta();
+                shpInput.classList.add("error");
+                agregarError(shp, "SHP no encontrado en archivo");
+                return;
+            }
+
+            if (coincidencias.length > 1) {
+                alert("⚠️ SHP duplicado en el archivo.");
+                reproducirAlerta();
+                shpInput.classList.add("error");
+                agregarError(shp, "SHP duplicado en archivo");
+                return;
+            }
+
+            const fila = coincidencias[0];
+
+            resultado.innerHTML = `
+                <p><strong>Orden (Ordnum):</strong> ${fila.Ordnum}</p>
+                <p><strong>LOAD:</strong> ${fila.LOAD}</p>
+                <p><strong>WD:</strong> ${fila.WD}</p>
+                <p><strong>Carrier:</strong> ${fila.Carrier}</p>
+            `;
+
+            validados++;
+            shpValidados.add(shp);
+            agregarAFilaDetalle(fila);
+            actualizarDashboard();
+        }
+
+        function agregarAFilaDetalle(fila) {
+            const tbody = document.querySelector("#tablaResultados tbody");
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+                <td>${fila.Ordnum}</td>
+                <td>${fila.SHP}</td>
+                <td>${fila.LOAD}</td>
+                <td>${fila.WD}</td>
+                <td>${fila.Carrier}</td>
+            `;
+            tbody.appendChild(tr);
+        }
+
+        function agregarError(shp, tipoError) {
+            errores.push({ shp: shp, tipo_error: tipoError });
+            const tbody = document.querySelector("#tablaErrores tbody");
+            const tr = document.createElement("tr");
+            tr.innerHTML = `
+                <td class="error">${shp}</td>
+                <td class="error">${tipoError}</td>
+            `;
+            tbody.appendChild(tr);
+            actualizarDashboard();
+        }
+
+        function actualizarDashboard() {
+            const total = datosExcel.length;
+            const progreso = total > 0 ? Math.round((validados / total) * 100) : 0;
+            document.getElementById("validados").textContent = validados;
+            document.getElementById("totalErrores").textContent = errores.length;
+            document.getElementById("progreso").value = progreso;
+            document.getElementById("porcentaje").textContent = `${progreso}%`;
+        }
+
+        function guardarRegistros() {
+            if (validados === 0 && errores.length === 0) {
+                alert("No hay datos para guardar.");
+                return;
+            }
+
+            fetch('/guardar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ validados: Array.from(shpValidados), datos: datosExcel, errores: errores })
+            })
+                .then(response => response.json())
+                .then(data => alert(data.message))
+                .catch(() => alert("Error al guardar registros."));
+        }
+
+        window.addEventListener('beforeunload', function (e) {
+            const confirmationMessage = 'Hay cambios sin guardar. ¿Seguro quieres salir?';
+            (e || window.event).returnValue = confirmationMessage; // Gecko + IE
+            return confirmationMessage; // Webkit, Safari, Chrome
+        });
+    </script>
+</body>
+
+</html>
